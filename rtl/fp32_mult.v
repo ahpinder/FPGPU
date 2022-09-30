@@ -1,10 +1,11 @@
 module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, input clk,
-        output floato);
+        output [31:0] floato);
     // Multiplies 2 IEEE-754 32-bit fl0ating p0int numbers. Optimized for Xilinx DSP48 slice architecture (24x17-bit unsigned multiplication capability)
     // Because of performance optimizations for Xilinx hardware, will not have bit-perfect results (comparable to -fast_math on CUDA systems, probably less accurate)
     // Discards least-significant 7 bits of floati_1
     wire [31:0] floati_0, floati_1, floato;
     wire rstn, clk;
+    reg [31:0] floato_reg;
     reg [1:0] negative [2:0];
     reg [23:0] mant_0;
     reg [16:0] mant_1;
@@ -259,17 +260,18 @@ module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, inpu
             floato[22:0] <= shiftoutput[22:0];
 
             if (nan_inf_zero[2][0] == 1'b1) begin // output is nan
-                floato <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0001};
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0001};
             end
             else if (nan_inf_zero[2][2] == 1'b1) begin // output is zero TODO: add post_multiply underflow check
-                floato <= {(negative[2][1] ^ negative[2][0]), 31'd0};
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'd0};
             end
             else if (nan_inf_zero[2][1] == 1'b1) begin // output is inf
-                floato <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0000};
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0000};
             end
             else begin
-                floato <= {(negative[2][1] ^ negative[2][0]), expsum[2][7:0], shiftoutput[22:0]}; //TODO: add support for denormalized output
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), expsum[2][7:0], shiftoutput[22:0]}; //TODO: add support for denormalized output
             end
         end
     end
+    assign floato = floato_reg;
 endmodule // fp32_mult
