@@ -3,15 +3,12 @@ module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, inpu
     // Multiplies 2 IEEE-754 32-bit fl0ating p0int numbers. Optimized for Xilinx DSP48 slice architecture (24x17-bit unsigned multiplication capability)
     // Because of performance optimizations for Xilinx hardware, will not have bit-perfect results (comparable to -fast_math on CUDA systems, probably less accurate)
     // Discards least-significant 7 bits of floati_1
-    wire [31:0] floati_0, floati_1, floato;
-    wire rstn, clk;
     reg [31:0] floato_reg;
     reg [1:0] negative [2:0];
     reg [23:0] mant_0;
     reg [16:0] mant_1;
     reg [8:0] expsum [2:0];
     reg [40:0] mantprod;
-    reg [40:0] shiftinput;
     reg [23:0] shiftoutput;
     reg [1:0] lownums [2:0];
     reg [5:0] nan_inf_zero [2:0];
@@ -45,16 +42,16 @@ module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, inpu
                 mant_0 <= {1'b1, floati_0[22:0]};
                 lownums[0][0] <= 1'b0;
             end
-            if (floati_1 [31:24] == 8'b0) begin // denormalized
+            if (floati_1 [30:23] == 8'b0) begin // denormalized
                 if (floati_1[22:0] == 23'b0)
                     nan_inf_zero[0][5] <= 1'b1;
                 else
                     nan_inf_zero[0][5] <= 1'b0;
-                mant_1 <= floati_1[23:7];
+                mant_1 <= floati_1[22:6];
                 lownums[0][1] <= 1'b1;
             end
             else begin // normalized
-                mant_1 <= {1'b1, floati_1[23:8]};
+                mant_1 <= {1'b1, floati_1[22:7]};
                 lownums[0][1] <= 1'b0;
             end
             if (floati_0[30:23] == 8'b1111_1111) begin
@@ -92,14 +89,14 @@ module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, inpu
                 {nan_inf_zero[1][4:3], nan_inf_zero[1][1:0]} <= {nan_inf_zero[0][4:3], nan_inf_zero[0][1:0]};
                 // underflow (result should be 0)
             end
-            else if (expsum[0] > 9'b382) begin // 382 == 255 + 127
+            else if (expsum[0] > 9'd382) begin // 382 == 255 + 127
                 expsum[1] <= 9'd255;
                 {nan_inf_zero[1][1], nan_inf_zero[1][4]} <= 2'b11;
                 {nan_inf_zero[1][5], nan_inf_zero[1][3:2], nan_inf_zero[1][0]} <= {nan_inf_zero[0][5], nan_inf_zero[0][3:2], nan_inf_zero[0][0]};
                 // overflow (result should be INF)
             end
             else begin
-                expsum[1] <= expsum[0] - 9'd255;
+                expsum[1] <= expsum[0] - 9'd127;
                 nan_inf_zero[1] <= nan_inf_zero[0];
             end
             negative[1] <= negative[0];
@@ -257,19 +254,21 @@ module fp32_mult (input [31:0] floati_0, input [31:0] floati_1, input rstn, inpu
             //end stage 3
             //stage 4
             //depending on nan_inf_zero, apply the correcct mantissa to the output register
-            floato[22:0] <= shiftoutput[22:0];
 
             if (nan_inf_zero[2][0] == 1'b1) begin // output is nan
                 floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0001};
             end
-            else if (nan_inf_zero[2][2] == 1'b1) begin // output is zero TODO: add post_multiply underflow check
+            else if (nan_inf_zero[2][2] == 1'b1 || shiftoutput == 24'h000000) begin // output is zero TODO: add post_multiply underflow check -- I think it's covered now
                 floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'd0};
             end
             else if (nan_inf_zero[2][1] == 1'b1) begin // output is inf
                 floato_reg <= {(negative[2][1] ^ negative[2][0]), 31'b111_1111_1000_0000_0000_0000_0000_0000};
             end
+            else if (expsum[2][7:0] == 8'h00) begin // TODO: denormalize output from multiplication result
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), expsum[2][7:0], shiftoutput[23:1]};
+            end
             else begin
-                floato_reg <= {(negative[2][1] ^ negative[2][0]), expsum[2][7:0], shiftoutput[22:0]}; //TODO: add support for denormalized output
+                floato_reg <= {(negative[2][1] ^ negative[2][0]), (expsum[2][7:0] + {7'd0, shiftby == 5'd23}), shiftoutput[22:0]};
             end
         end
     end
